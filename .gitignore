@@ -1,5 +1,5 @@
 .idea/
 .venv/
 __pycache__/
-app/chat.db
+chat.db
 uploads/

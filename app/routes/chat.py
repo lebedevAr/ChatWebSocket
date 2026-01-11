@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query, \
-    Body
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query, Request
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -19,7 +19,8 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
-
+#temporary
+templates = Jinja2Templates(directory="/home/artem/Desktop/work/ChatWebSocket/app/static/templates")
 
 # WebSocket endpoint
 @router.websocket("/ws/{token}")
@@ -433,6 +434,28 @@ async def get_chats_by_date(
 
 @router.delete("/{chat_id}")
 async def delete_chat_by_id(
+        chat_id: UUID,
+        current_user: models.User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    """Удалить чат по ID"""
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id,models.Chat.is_active == True).first()
+
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if str(current_user.id) not in [str(chat.user1_id), str(chat.user2_id)]:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this chat")
+
+    db.query(models.Message).filter(models.Message.chat_id == chat_id).delete()
+    db.delete(chat)
+    db.commit()
+
+    return {"message": "Chat deleted successfully"}
+
+
+@router.put("/archive/{chat_id}")
+async def archive_chat_by_id(
         chat_id: UUID,
         current_user: models.User = Depends(get_current_user),
         db: Session = Depends(get_db)
@@ -1008,265 +1031,9 @@ async def get_uploaded_file(filename: str):
 
 
 @router.get("/test-ws", response_class=HTMLResponse)
-async def test_websocket_page():
+async def test_websocket_page(request: Request):
     """Тестовая страница для WebSocket"""
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>WebSocket Chat Test</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            .container { max-width: 800px; margin: 0 auto; }
-            .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
-            .messages { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
-            .message { margin: 5px 0; padding: 8px; border-radius: 4px; }
-            .sent { background: #e3f2fd; text-align: right; }
-            .received { background: #f5f5f5; }
-            .status { color: #666; font-size: 12px; }
-            .typing { color: #2196f3; font-style: italic; }
-            .online { color: #4caf50; }
-            .offline { color: #f44336; }
-            input, button, textarea { padding: 8px; margin: 5px; }
-            textarea { width: 70%; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>WebSocket Chat Test</h1>
-
-            <div class="section">
-                <h3>Authentication</h3>
-                <input type="text" id="token" placeholder="JWT Token" style="width: 300px;">
-                <button onclick="connectWebSocket()">Connect</button>
-                <button onclick="disconnectWebSocket()">Disconnect</button>
-                <div id="connectionStatus" class="status">Not connected</div>
-            </div>
-
-            <div class="section">
-                <h3>Send Test Message</h3>
-                <input type="text" id="receiverId" placeholder="Receiver ID (UUID)" style="width: 300px;">
-                <br>
-                <textarea id="messageContent" placeholder="Message" rows="3"></textarea>
-                <br>
-                <button onclick="sendTestMessage()">Send Message</button>
-                <button onclick="sendTyping(true)">Start Typing</button>
-                <button onclick="sendTyping(false)">Stop Typing</button>
-            </div>
-
-            <div class="section">
-                <h3>Messages</h3>
-                <div id="messages" class="messages"></div>
-                <div id="typingIndicator" class="typing" style="display: none;">
-                    User is typing...
-                </div>
-            </div>
-
-            <div class="section">
-                <h3>Log</h3>
-                <div id="log" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
-            </div>
-        </div>
-
-        <script>
-            let ws = null;
-            let userId = null;
-
-            function log(message) {
-                const logDiv = document.getElementById('log');
-                logDiv.innerHTML += `[${new Date().toLocaleTimeString()}] ${message}\\n`;
-                logDiv.scrollTop = logDiv.scrollHeight;
-            }
-
-            function updateConnectionStatus(status, isOnline = false) {
-                const statusDiv = document.getElementById('connectionStatus');
-                statusDiv.textContent = status;
-                statusDiv.className = isOnline ? 'status online' : 'status offline';
-            }
-
-            async function connectWebSocket() {
-                const token = document.getElementById('token').value;
-                if (!token) {
-                    alert('Please enter a token');
-                    return;
-                }
-
-                try {
-                    // Decode token to get user ID
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    userId = payload.sub;
-                    log(`User ID from token: ${userId}`);
-                } catch (e) {
-                    log('Invalid token format');
-                    return;
-                }
-
-                // Connect WebSocket
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const host = window.location.host;
-                ws = new WebSocket(`${protocol}//${host}/chat/ws/${token}`);
-
-                ws.onopen = () => {
-                    updateConnectionStatus('Connected', true);
-                    log('WebSocket connected');
-                };
-
-                ws.onclose = (event) => {
-                    updateConnectionStatus('Disconnected', false);
-                    log(`WebSocket disconnected: ${event.code} ${event.reason}`);
-                    ws = null;
-                    userId = null;
-                };
-
-                ws.onerror = (error) => {
-                    log(`WebSocket error: ${error}`);
-                };
-
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        handleWebSocketMessage(data);
-                    } catch (e) {
-                        log(`Error parsing message: ${e}, raw: ${event.data}`);
-                    }
-                };
-            }
-
-            function disconnectWebSocket() {
-                if (ws) {
-                    ws.close();
-                    ws = null;
-                    updateConnectionStatus('Disconnected', false);
-                }
-            }
-
-            function handleWebSocketMessage(data) {
-                log(`Received: ${data.type}`);
-
-                const messagesDiv = document.getElementById('messages');
-
-                switch(data.type) {
-                    case 'connection':
-                        log(`Connected as user: ${data.user_id}`);
-                        break;
-
-                    case 'message':
-                        const messageDiv = document.createElement('div');
-                        messageDiv.className = `message ${data.sender_id === userId ? 'sent' : 'received'}`;
-                        messageDiv.innerHTML = `
-                            <strong>${data.sender_id === userId ? 'You' : 'User ' + data.sender_id}</strong><br>
-                            ${data.content || '(media message)'}<br>
-                            <small>${new Date(data.created_at).toLocaleTimeString()}</small>
-                        `;
-                        messagesDiv.appendChild(messageDiv);
-                        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                        break;
-
-                    case 'typing':
-                        const typingDiv = document.getElementById('typingIndicator');
-                        if (data.is_typing) {
-                            typingDiv.textContent = `User ${data.user_id} is typing...`;
-                            typingDiv.style.display = 'block';
-
-                            // Hide after 3 seconds
-                            setTimeout(() => {
-                                typingDiv.style.display = 'none';
-                            }, 3000);
-                        } else {
-                            typingDiv.style.display = 'none';
-                        }
-                        break;
-
-                    case 'message_read':
-                        log(`Message ${data.message_id} read by ${data.reader_id}`);
-                        break;
-
-                    case 'user_status':
-                        log(`User ${data.user_id} is now ${data.status}`);
-                        break;
-
-                    case 'pong':
-                        log('Pong received');
-                        break;
-
-                    case 'error':
-                        log(`Error: ${data.message}`);
-                        break;
-                }
-            }
-
-            function sendTestMessage() {
-                if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    alert('Not connected to WebSocket');
-                    return;
-                }
-
-                const receiverId = document.getElementById('receiverId').value;
-                const messageContent = document.getElementById('messageContent').value;
-
-                if (!receiverId || !messageContent) {
-                    alert('Please enter receiver ID and message');
-                    return;
-                }
-
-                const message = {
-                    type: 'message',
-                    receiver_id: receiverId,
-                    content: messageContent,
-                    message_type: 'text'
-                };
-
-                ws.send(JSON.stringify(message));
-                log(`Sent message to ${receiverId}: ${messageContent}`);
-
-                // Clear input
-                document.getElementById('messageContent').value = '';
-            }
-
-            function sendTyping(isTyping) {
-                if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    return;
-                }
-
-                const receiverId = document.getElementById('receiverId').value;
-                if (!receiverId) {
-                    alert('Please enter receiver ID first');
-                    return;
-                }
-
-                // For this demo, we'll assume chat_id is the same as receiver_id
-                const typingMessage = {
-                    type: 'typing',
-                    chat_id: receiverId,
-                    is_typing: isTyping
-                };
-
-                ws.send(JSON.stringify(typingMessage));
-                log(`${isTyping ? 'Started' : 'Stopped'} typing`);
-            }
-
-            // Auto-connect if token exists in localStorage
-            window.addEventListener('load', () => {
-                const savedToken = localStorage.getItem('chat_token');
-                if (savedToken) {
-                    document.getElementById('token').value = savedToken;
-                    setTimeout(() => connectWebSocket(), 1000);
-                }
-            });
-
-            // Save token to localStorage
-            document.getElementById('token').addEventListener('change', function() {
-                localStorage.setItem('chat_token', this.value);
-            });
-
-            // Handle Enter key in message input
-            document.getElementById('messageContent').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendTestMessage();
-                }
-            });
-        </script>
-    </body>
-    </html>
-    """
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request}
+    )

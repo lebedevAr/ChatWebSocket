@@ -1,0 +1,1980 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram-like Chat</title>
+    <style>
+        /* Все стили остаются такими же */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            display: flex;
+            width: 100%;
+            max-width: 1200px;
+            height: 90vh;
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .sidebar {
+            width: 350px;
+            border-right: 1px solid #e1e8ed;
+            display: flex;
+            flex-direction: column;
+            background: #f8f9fa;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #e1e8ed;
+            background: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-header h1 {
+            color: #0088cc;
+            font-size: 24px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .username {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .logout-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .ws-status {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 5px;
+        }
+
+        .ws-status.connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .ws-status.disconnected {
+            background: #ff4444;
+            color: white;
+        }
+
+        .new-chat-btn {
+            width: 100%;
+            padding: 12px;
+            background: #0088cc;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background 0.3s;
+            margin-top: 10px;
+        }
+
+        .new-chat-btn:hover {
+            background: #006699;
+        }
+
+        .chats-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+            background: white;
+            border: 1px solid #e1e8ed;
+            position: relative;
+        }
+
+        .chat-item:hover {
+            background: #f0f2f5;
+        }
+
+        .chat-item.active {
+            background: #e3f2fd;
+            border-color: #0088cc;
+        }
+
+        .chat-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            margin-right: 15px;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .online-indicator {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 12px;
+            height: 12px;
+            background: #4CAF50;
+            border: 2px solid white;
+            border-radius: 50%;
+        }
+
+        .online-indicator.offline {
+            background: #cccccc;
+        }
+
+        .chat-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .chat-username {
+            font-weight: 600;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .chat-time {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .last-message {
+            font-size: 14px;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .typing-indicator {
+            color: #0088cc;
+            font-style: italic;
+            font-size: 12px;
+        }
+
+        .unread-badge {
+            background: #0088cc;
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: auto;
+        }
+
+        .delete-chat-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .chat-item:hover .delete-chat-btn {
+            opacity: 1;
+        }
+
+        .chat-window {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        .chat-header-window {
+            padding: 20px;
+            border-bottom: 1px solid #e1e8ed;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: white;
+        }
+
+        .chat-user-info {
+            display: flex;
+            align-items: center;
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #0088cc;
+            margin-right: 15px;
+            display: none;
+        }
+
+        .online-status {
+            font-size: 12px;
+            color: #4CAF50;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .online-dot {
+            width: 8px;
+            height: 8px;
+            background: #4CAF50;
+            border-radius: 50%;
+        }
+
+        .online-dot.offline {
+            background: #cccccc;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            position: relative;
+            word-wrap: break-word;
+            margin-bottom: 8px;
+            animation: messageAppear 0.3s ease-out;
+        }
+
+        @keyframes messageAppear {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.sent {
+            align-self: flex-end;
+            background: #0088cc;
+            color: white;
+            border-bottom-right-radius: 5px;
+            margin-left: auto;
+        }
+
+        .message.received {
+            align-self: flex-start;
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 5px;
+            border: 1px solid #e1e8ed;
+            margin-right: auto;
+        }
+
+        .message.temp {
+            opacity: 0.7;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.8;
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .message-status {
+            font-size: 10px;
+            margin-left: 5px;
+        }
+
+        .typing-bubble {
+            align-self: flex-start;
+            background: white;
+            padding: 12px 16px;
+            border-radius: 18px;
+            border: 1px solid #e1e8ed;
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            margin-right: auto;
+            margin-bottom: 8px;
+            display: none;
+        }
+
+        .typing-bubble span {
+            width: 6px;
+            height: 6px;
+            background: #999;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-bubble span:nth-child(1) { animation-delay: 0s; }
+        .typing-bubble span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-bubble span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-5px); }
+        }
+
+        .message-input-container {
+            padding: 20px;
+            border-top: 1px solid #e1e8ed;
+            background: white;
+        }
+
+        .message-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 12px 20px;
+            border: 1px solid #e1e8ed;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .message-input:focus {
+            border-color: #0088cc;
+        }
+
+        .send-btn {
+            padding: 12px 30px;
+            background: #0088cc;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background 0.3s;
+        }
+
+        .send-btn:hover {
+            background: #006699;
+        }
+
+        .send-btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .auth-form {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .auth-form h2 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+
+        .auth-form input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #e1e8ed;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        .auth-form button {
+            width: 100%;
+            padding: 12px;
+            background: #0088cc;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .auth-error {
+            color: #ff4444;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .modal input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #e1e8ed;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .modal-btn.primary {
+            background: #0088cc;
+            color: white;
+        }
+
+        .modal-btn.secondary {
+            background: #f8f9fa;
+            color: #333;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #0088cc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            .sidebar {
+                position: absolute;
+                left: 0;
+                top: 0;
+                height: 100%;
+                width: 100%;
+                z-index: 10;
+                transition: transform 0.3s;
+            }
+
+            .sidebar.hidden {
+                transform: translateX(-100%);
+            }
+
+            .chat-window {
+                width: 100%;
+            }
+
+            .back-btn {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Auth Form (shown when not authenticated) -->
+    <div class="auth-container" id="authContainer">
+        <form class="auth-form" id="loginForm">
+            <h2>Вход в чат</h2>
+            <div class="auth-error" id="authError" style="display: none;"></div>
+            <input type="text"
+                   id="loginInput"
+                   placeholder="Логин"
+                   required>
+            <input type="password"
+                   id="passwordInput"
+                   placeholder="Пароль"
+                   required>
+            <button type="submit" id="loginBtn">Войти</button>
+        </form>
+    </div>
+
+    <!-- Chat Interface (shown when authenticated) -->
+    <div class="chat-container" id="chatInterface" style="display: none;">
+        <!-- Sidebar with chats list -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1>Telegram-like Chat</h1>
+                <div class="user-info">
+                    <span class="username" id="currentUsername"></span>
+                    <span class="ws-status disconnected" id="wsStatus">WS</span>
+                    <button class="logout-btn" id="logoutBtn">Выйти</button>
+                </div>
+            </div>
+            <button class="new-chat-btn" id="newChatBtn">Новый чат</button>
+            <div class="chats-list" id="chatsList">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Загрузка чатов...
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat window -->
+        <div class="chat-window" id="chatWindow">
+            <div class="chat-header-window">
+                <button class="back-btn" id="backBtn">←</button>
+                <div class="chat-user-info" id="currentChatInfo">
+                    <div class="empty-state">
+                        Выберите чат для начала общения
+                    </div>
+                </div>
+            </div>
+            <div class="messages-container" id="messagesContainer">
+                <div class="empty-state">
+                    Сообщения появятся здесь
+                </div>
+            </div>
+            <div class="message-input-container" id="messageInputContainer" style="display: none;">
+                <div class="typing-bubble" id="typingIndicator">
+                    <span></span><span></span><span></span>
+                </div>
+                <form class="message-form" id="messageForm">
+                    <input type="text"
+                           class="message-input"
+                           id="messageInput"
+                           placeholder="Введите сообщение..."
+                           required>
+                    <button type="submit" class="send-btn" id="sendBtn">Отправить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Chat Modal -->
+    <div class="modal" id="newChatModal">
+        <div class="modal-content">
+            <h2>Новый чат</h2>
+            <input type="text"
+                   id="userIdInput"
+                   placeholder="Введите ID пользователя для начала чата">
+            <div class="modal-buttons">
+                <button class="modal-btn secondary" id="cancelNewChatBtn">Отмена</button>
+                <button class="modal-btn primary" id="createChatBtn">Создать чат</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Chat Modal -->
+    <div class="modal" id="deleteChatModal">
+        <div class="modal-content">
+            <h2>Удалить чат</h2>
+            <p id="deleteChatMessage">Вы уверены, что хотите удалить этот чат? Все сообщения будут удалены.</p>
+            <div class="modal-buttons">
+                <button class="modal-btn secondary" id="cancelDeleteBtn">Отмена</button>
+                <button class="modal-btn primary" id="confirmDeleteBtn">Удалить</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== КОНФИГУРАЦИЯ ====================
+        function getBaseUrl() {
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                return 'http://localhost:8000';
+            }
+
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+
+            let apiHost = host;
+            if (!host.includes(':') && protocol === 'http:') {
+                apiHost = host + ':8000';
+            } else if (!host.includes(':') && protocol === 'https:') {
+                apiHost = host;
+            }
+
+            return `${protocol}//${apiHost}`;
+        }
+
+        const API_BASE_URL = getBaseUrl();
+        console.log('API Base URL:', API_BASE_URL);
+
+        const DEBUG = true;
+        function debugLog(...args) {
+            if (DEBUG) {
+                console.log('[DEBUG]', new Date().toISOString(), ...args);
+            }
+        }
+
+        // ==================== STATE ====================
+        const TOKEN_KEY = 'chat_auth_token';
+        const USERNAME_KEY = 'chat_username';
+
+        let currentUser = null;
+        let currentChat = null;
+        let chats = [];
+        let chatToDelete = null;
+        let authToken = null;
+        let ws = null;
+        let userId = null;
+        let typingTimeout = null;
+        let onlineUsers = new Set();
+        let pendingMessages = new Map();
+        let isProcessingMessage = false;
+
+        // ==================== DOM ELEMENTS ====================
+        const authContainer = document.getElementById('authContainer');
+        const chatInterface = document.getElementById('chatInterface');
+        const loginForm = document.getElementById('loginForm');
+        const loginInput = document.getElementById('loginInput');
+        const passwordInput = document.getElementById('passwordInput');
+        const loginBtn = document.getElementById('loginBtn');
+        const authError = document.getElementById('authError');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const currentUsername = document.getElementById('currentUsername');
+        const wsStatus = document.getElementById('wsStatus');
+
+        const sidebar = document.getElementById('sidebar');
+        const chatWindow = document.getElementById('chatWindow');
+        const chatsList = document.getElementById('chatsList');
+        const messagesContainer = document.getElementById('messagesContainer');
+        const messageInputContainer = document.getElementById('messageInputContainer');
+        const messageForm = document.getElementById('messageForm');
+        const messageInput = document.getElementById('messageInput');
+        const typingIndicator = document.getElementById('typingIndicator');
+        const sendBtn = document.getElementById('sendBtn');
+        const backBtn = document.getElementById('backBtn');
+        const newChatBtn = document.getElementById('newChatBtn');
+        const newChatModal = document.getElementById('newChatModal');
+        const deleteChatModal = document.getElementById('deleteChatModal');
+        const deleteChatMessage = document.getElementById('deleteChatMessage');
+        const cancelNewChatBtn = document.getElementById('cancelNewChatBtn');
+        const createChatBtn = document.getElementById('createChatBtn');
+        const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+        const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+        const userIdInput = document.getElementById('userIdInput');
+
+        // ==================== API FUNCTIONS ====================
+        async function makeAuthenticatedRequest(url, options = {}) {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('Требуется авторизация');
+            }
+
+            const defaultOptions = {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'accept': 'application/json',
+                    ...(options.method === 'POST' || options.method === 'PUT' ?
+                        { 'Content-Type': 'application/json' } : {})
+                }
+            };
+
+            const mergedOptions = {
+                ...defaultOptions,
+                ...options,
+                headers: {
+                    ...defaultOptions.headers,
+                    ...options.headers
+                }
+            };
+
+            debugLog('Making request to:', url, mergedOptions.method);
+
+            try {
+                const response = await fetch(url, mergedOptions);
+                debugLog('Response status:', response.status);
+
+                if (response.status === 401) {
+                    logout();
+                    throw new Error('Сессия истекла. Пожалуйста, войдите снова.');
+                }
+
+                return response;
+            } catch (error) {
+                debugLog('Request failed:', error);
+                throw error;
+            }
+        }
+
+        // ==================== DELETE CHAT FUNCTION (ИСПРАВЛЕНА) ====================
+        async function deleteChat(chatId) {
+            debugLog(`Attempting to delete chat: ${chatId}`);
+
+            try {
+                // Согласно Swagger, API ожидает DELETE запрос с ID чата в URL
+                // Формат: DELETE /chat/{chat_id}
+                const response = await makeAuthenticatedRequest(
+                    `${API_BASE_URL}/chat/${chatId}`,
+                    {
+                        method: 'DELETE'
+                    }
+                );
+
+                debugLog('Delete response status:', response.status);
+
+                if (response.ok) {
+                    debugLog('Chat deleted successfully');
+
+                    // Убираем удаленный чат из списка
+                    chats = chats.filter(chat => chat.id !== chatId);
+
+                    // Перерисовываем список чатов
+                    renderChatsList();
+
+                    // Если удалили текущий открытый чат, закрываем его
+                    if (currentChat && currentChat.id === chatId) {
+                        closeChat();
+                    }
+
+                    // Закрываем модальное окно
+                    deleteChatModal.classList.remove('active');
+                    chatToDelete = null;
+
+                    // Показываем уведомление об успешном удалении
+                    showSuccessNotification('Чат успешно удален');
+
+                    return;
+                }
+
+                // Если запрос неудачный, пробуем получить детальную информацию об ошибке
+                let errorDetail = '';
+                try {
+                    const errorData = await response.json();
+                    errorDetail = errorData.detail || JSON.stringify(errorData);
+                    debugLog('Error response data:', errorData);
+                } catch (e) {
+                    const errorText = await response.text();
+                    errorDetail = errorText || 'Неизвестная ошибка';
+                }
+
+                throw new Error(`Ошибка ${response.status}: ${errorDetail}`);
+
+            } catch (error) {
+                console.error('Error deleting chat:', error);
+
+                // Показываем более информативное сообщение об ошибке
+                let userMessage = 'Ошибка удаления чата: ';
+
+                if (error.message.includes('422')) {
+                    userMessage += 'Неверный формат запроса. ';
+                } else if (error.message.includes('404')) {
+                    userMessage += 'Чат не найден. Возможно, он уже был удален.';
+                } else if (error.message.includes('403')) {
+                    userMessage += 'У вас нет прав для удаления этого чата.';
+                } else if (error.message.includes('401')) {
+                    userMessage += 'Сессия истекла. Пожалуйста, войдите снова.';
+                    logout();
+                } else {
+                    userMessage += error.message;
+                }
+
+                alert(userMessage);
+
+                // Закрываем модальное окно даже при ошибке
+                deleteChatModal.classList.remove('active');
+                chatToDelete = null;
+            }
+        }
+
+        function showSuccessNotification(message) {
+            // Создаем временное уведомление об успехе
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #4CAF50;
+                color: white;
+                padding: 12px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 9999;
+                animation: slideIn 0.3s ease-out;
+            `;
+
+            // Добавляем CSS анимацию
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes slideIn {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            // Удаляем уведомление через 3 секунды
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateX(100%)';
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                    document.head.removeChild(style);
+                }, 300);
+            }, 3000);
+        }
+
+        // ==================== ОСТАЛЬНЫЕ ФУНКЦИИ (остаются без изменений) ====================
+
+        // WebSocket Functions (без изменений)
+        function connectWebSocket(token) {
+            if (!token) {
+                debugLog('No token provided for WebSocket connection');
+                return;
+            }
+
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                userId = payload.sub;
+                debugLog(`User ID from token: ${userId}`);
+            } catch (e) {
+                console.error('Invalid token format for WebSocket:', e);
+                return;
+            }
+
+            let wsUrl;
+
+            if (API_BASE_URL.includes('localhost')) {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                wsUrl = `${protocol}//localhost:8000/chat/ws/${token}`;
+            } else {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host;
+                wsUrl = `${protocol}//${host}/chat/ws/${token}`;
+            }
+
+            debugLog(`Connecting to WebSocket: ${wsUrl}`);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                debugLog('WebSocket connected');
+                updateWsStatus('connected');
+            };
+
+            ws.onclose = (event) => {
+                debugLog(`WebSocket disconnected: ${event.code} ${event.reason}`);
+                updateWsStatus('disconnected');
+                ws = null;
+
+                setTimeout(() => {
+                    if (authToken) {
+                        debugLog('Attempting to reconnect WebSocket...');
+                        connectWebSocket(authToken);
+                    }
+                }, 5000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                updateWsStatus('disconnected');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    debugLog('WebSocket message received:', data.type);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error(`Error parsing WebSocket message: ${e}, raw: ${event.data}`);
+                }
+            };
+        }
+
+        function updateWsStatus(status) {
+            wsStatus.textContent = status === 'connected' ? 'WS ✓' : 'WS ✗';
+            wsStatus.className = `ws-status ${status}`;
+        }
+
+        function handleWebSocketMessage(data) {
+            debugLog('Processing WebSocket message:', data.type);
+
+            switch(data.type) {
+                case 'connection':
+                    debugLog(`WebSocket connected as user: ${data.user_id}`);
+                    break;
+
+                case 'message':
+                    handleIncomingMessage(data);
+                    break;
+
+                case 'typing':
+                    handleTypingIndicator(data);
+                    break;
+
+                case 'message_read':
+                    handleMessageRead(data);
+                    break;
+
+                case 'user_status':
+                    handleUserStatus(data);
+                    break;
+
+                case 'pong':
+                    debugLog('Pong received');
+                    break;
+
+                case 'error':
+                    console.error('WebSocket error:', data.message);
+                    break;
+            }
+        }
+
+        function handleIncomingMessage(messageData) {
+            debugLog('Processing incoming message:', messageData);
+
+            const isOwnMessage = messageData.sender_id === userId;
+
+            if (isOwnMessage) {
+                const tempId = findTempMessageId(messageData);
+                if (tempId) {
+                    replaceTempMessage(tempId, messageData);
+                    return;
+                }
+
+                if (isDuplicateMessage(messageData)) {
+                    debugLog('Duplicate own message received, ignoring:', messageData);
+                    return;
+                }
+            }
+
+            updateChatListWithMessage(messageData, isOwnMessage);
+
+            if (currentChat && shouldShowInCurrentChat(messageData)) {
+                if (!isOwnMessage) {
+                    sendMessageRead(messageData.id);
+                }
+
+                addMessageToChat(messageData, false);
+
+                updateUnreadCount(messageData, isOwnMessage);
+            } else if (!isOwnMessage) {
+                showNotification(messageData);
+            }
+        }
+
+        function findTempMessageId(messageData) {
+            const tempMessages = messagesContainer.querySelectorAll('.message.temp');
+            for (const tempMsg of tempMessages) {
+                const content = tempMsg.querySelector('.message-content').textContent;
+                if (content === messageData.content) {
+                    return tempMsg.dataset.tempId;
+                }
+            }
+            return null;
+        }
+
+        function replaceTempMessage(tempId, realMessage) {
+            const tempElement = messagesContainer.querySelector(`[data-temp-id="${tempId}"]`);
+            if (tempElement) {
+                debugLog('Replacing temp message with real one:', realMessage.id);
+                tempElement.outerHTML = createMessageElement(realMessage);
+                pendingMessages.delete(tempId);
+                fetchChats();
+            }
+        }
+
+        function isDuplicateMessage(messageData) {
+            if (messagesContainer.querySelector(`[data-message-id="${messageData.id}"]`)) {
+                return true;
+            }
+
+            const tempMsg = messagesContainer.querySelector(`[data-temp-id]`);
+            if (tempMsg && tempMsg.querySelector('.message-content').textContent === messageData.content) {
+                return true;
+            }
+
+            return false;
+        }
+
+        function updateChatListWithMessage(messageData, isOwnMessage) {
+            const chat = chats.find(c =>
+                c.other_user.id === messageData.sender_id ||
+                c.other_user.id === messageData.receiver_id
+            );
+
+            if (chat) {
+                chat.last_message = messageData;
+                if (!isOwnMessage && messageData.sender_id !== userId) {
+                    chat.unread_count = (chat.unread_count || 0) + 1;
+                }
+                renderChatsList();
+            }
+        }
+
+        function shouldShowInCurrentChat(messageData) {
+            if (!currentChat) return false;
+
+            return (
+                currentChat.other_user.id === messageData.sender_id ||
+                currentChat.other_user.id === messageData.receiver_id ||
+                (messageData.sender_id === userId && currentChat.other_user.id === messageData.receiver_id)
+            );
+        }
+
+        function updateUnreadCount(messageData, isOwnMessage) {
+            const chat = chats.find(c =>
+                c.other_user.id === messageData.sender_id ||
+                c.other_user.id === messageData.receiver_id
+            );
+
+            if (chat && !isOwnMessage) {
+                chat.unread_count = Math.max(0, chat.unread_count - 1);
+                renderChatsList();
+            }
+        }
+
+        function handleTypingIndicator(data) {
+            if (currentChat && data.user_id === currentChat.other_user.id) {
+                if (data.is_typing) {
+                    showTypingIndicator();
+
+                    clearTimeout(typingTimeout);
+                    typingTimeout = setTimeout(() => {
+                        hideTypingIndicator();
+                    }, 3000);
+                } else {
+                    hideTypingIndicator();
+                }
+            }
+        }
+
+        function handleMessageRead(data) {
+            if (currentChat && data.reader_id === currentChat.other_user.id) {
+                const messageDiv = messagesContainer.querySelector(`[data-message-id="${data.message_id}"]`);
+                if (messageDiv) {
+                    const statusSpan = messageDiv.querySelector('.message-status');
+                    if (statusSpan) {
+                        statusSpan.textContent = '✓✓';
+                        statusSpan.title = 'Прочитано';
+                    }
+                }
+            }
+        }
+
+        function handleUserStatus(data) {
+            if (data.status === 'online') {
+                onlineUsers.add(data.user_id);
+            } else {
+                onlineUsers.delete(data.user_id);
+            }
+
+            updateOnlineStatuses();
+        }
+
+        function sendWebSocketMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+                debugLog('WebSocket message sent:', message.type);
+                return true;
+            }
+            debugLog('WebSocket not available for sending');
+            return false;
+        }
+
+        function sendTypingIndicator(isTyping) {
+            if (!currentChat) return;
+
+            const typingMessage = {
+                type: 'typing',
+                chat_id: currentChat.id,
+                is_typing: isTyping
+            };
+
+            sendWebSocketMessage(typingMessage);
+        }
+
+        function sendMessageRead(messageId) {
+            if (!currentChat) return;
+
+            const readMessage = {
+                type: 'message_read',
+                message_id: messageId,
+                chat_id: currentChat.id
+            };
+
+            sendWebSocketMessage(readMessage);
+        }
+
+        // Authentication Functions (без изменений)
+        async function authenticate(login, password) {
+            try {
+                showAuthError('');
+                loginBtn.disabled = true;
+                loginBtn.textContent = 'Вход...';
+
+                debugLog('Authenticating with:', API_BASE_URL);
+
+                const response = await fetch(`${API_BASE_URL}/auth/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        username: login,
+                        password: password
+                    })
+                });
+
+                debugLog('Auth response status:', response.status);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    debugLog('Auth error response:', errorText);
+                    throw new Error('Неверный логин или пароль');
+                }
+
+                const data = await response.json();
+                debugLog('Auth response data:', data);
+
+                const token = data.access_token;
+
+                if (!token) {
+                    throw new Error('Токен не получен от сервера');
+                }
+
+                localStorage.setItem(TOKEN_KEY, token);
+                localStorage.setItem(USERNAME_KEY, login);
+
+                authToken = token;
+                currentUser = { username: login };
+
+                connectWebSocket(token);
+                showChatInterface();
+
+            } catch (error) {
+                console.error('Full auth error:', error);
+                showAuthError(error.message || 'Ошибка входа. Проверьте подключение к интернету.');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Войти';
+            }
+        }
+
+        function getAuthToken() {
+            if (!authToken) {
+                authToken = localStorage.getItem(TOKEN_KEY);
+            }
+            return authToken;
+        }
+
+        function loadUserFromStorage() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const username = localStorage.getItem(USERNAME_KEY);
+
+            if (token && username) {
+                authToken = token;
+                currentUser = { username: username };
+                return true;
+            }
+            return false;
+        }
+
+        function logout() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+
+            localStorage.removeItem(TOKEN_KEY);
+            localStorage.removeItem(USERNAME_KEY);
+            authToken = null;
+            currentUser = null;
+            currentChat = null;
+            chats = [];
+            userId = null;
+            onlineUsers.clear();
+            pendingMessages.clear();
+
+            authContainer.style.display = 'flex';
+            chatInterface.style.display = 'none';
+
+            loginInput.value = '';
+            passwordInput.value = '';
+            showAuthError('');
+        }
+
+        function showAuthError(message) {
+            if (message) {
+                authError.textContent = message;
+                authError.style.display = 'block';
+            } else {
+                authError.style.display = 'none';
+            }
+        }
+
+        function showChatInterface() {
+            authContainer.style.display = 'none';
+            chatInterface.style.display = 'flex';
+            currentUsername.textContent = currentUser.username || 'Пользователь';
+
+            initChats();
+        }
+
+        async function fetchChats() {
+            try {
+                showLoading(chatsList, 'Загрузка чатов...');
+
+                const response = await makeAuthenticatedRequest(
+                    `${API_BASE_URL}/chat/chats`
+                );
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Ошибка ${response.status}: Не удалось загрузить чаты`);
+                }
+
+                const data = await response.json();
+                chats = data;
+                renderChatsList();
+            } catch (error) {
+                if (error.message.includes('Сессия истекла')) {
+                    throw error;
+                }
+                showError(chatsList, error.message || 'Ошибка загрузки чатов');
+                console.error('Error fetching chats:', error);
+            }
+        }
+
+        async function fetchMessages(userId) {
+            try {
+                showLoading(messagesContainer, 'Загрузка сообщений...');
+
+                const response = await makeAuthenticatedRequest(
+                    `${API_BASE_URL}/chat/messages/${userId}`
+                );
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Ошибка ${response.status}: Не удалось загрузить сообщения`);
+                }
+
+                const messages = await response.json();
+                renderMessages(messages);
+            } catch (error) {
+                if (error.message.includes('Сессия истекла')) {
+                    throw error;
+                }
+                showError(messagesContainer, error.message || 'Ошибка загрузки сообщений');
+                console.error('Error fetching messages:', error);
+            }
+        }
+
+        async function createChat(user2Id) {
+            try {
+                const response = await makeAuthenticatedRequest(
+                    `${API_BASE_URL}/chat/new`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ user2_id: user2Id })
+                    }
+                );
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `Ошибка ${response.status}: Не удалось создать чат`);
+                }
+
+                const newChat = await response.json();
+                await fetchChats();
+                openChat(newChat);
+                return newChat;
+            } catch (error) {
+                alert('Ошибка создания чата: ' + error.message);
+                console.error('Error creating chat:', error);
+            }
+        }
+
+        async function sendMessage(content, receiverId, replyToId = null) {
+            if (isProcessingMessage) {
+                debugLog('Message already being processed');
+                return;
+            }
+
+            isProcessingMessage = true;
+
+            try {
+                const tempId = 'temp-' + Date.now();
+                const tempMessage = {
+                    id: tempId,
+                    content: content,
+                    message_type: 'text',
+                    sender_id: userId,
+                    receiver_id: receiverId,
+                    created_at: new Date().toISOString(),
+                    is_read: false
+                };
+
+                addMessageToChat(tempMessage, true);
+                pendingMessages.set(tempId, tempMessage);
+
+                const wsMessage = {
+                    type: 'message',
+                    receiver_id: receiverId,
+                    content: content,
+                    message_type: 'text'
+                };
+
+                if (sendWebSocketMessage(wsMessage)) {
+                    debugLog('Message sent via WebSocket');
+
+                    setTimeout(async () => {
+                        if (pendingMessages.has(tempId)) {
+                            debugLog('Sending via REST API as backup');
+                            try {
+                                await sendViaRestApi(content, receiverId, replyToId, tempId);
+                            } catch (error) {
+                                console.error('REST API backup failed:', error);
+                            }
+                        }
+                    }, 1000);
+
+                    setTimeout(() => {
+                        fetchChats();
+                    }, 500);
+                } else {
+                    debugLog('WebSocket not available, using REST API');
+                    await sendViaRestApi(content, receiverId, replyToId, tempId);
+                }
+
+            } catch (error) {
+                if (error.message.includes('Сессия истекла')) {
+                    logout();
+                } else {
+                    alert('Ошибка отправки сообщения: ' + error.message);
+                    console.error('Error sending message:', error);
+                }
+            } finally {
+                isProcessingMessage = false;
+            }
+        }
+
+        async function sendViaRestApi(content, receiverId, replyToId, tempId) {
+            const messageData = {
+                content: content,
+                message_type: 'text',
+                receiver_id: receiverId
+            };
+
+            if (replyToId) {
+                messageData.reply_to_id = replyToId;
+            }
+
+            const response = await makeAuthenticatedRequest(
+                `${API_BASE_URL}/chat/message`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify(messageData)
+                }
+            );
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `Ошибка ${response.status}: Не удалось отправить сообщение`);
+            }
+
+            const message = await response.json();
+
+            const tempElement = messagesContainer.querySelector(`[data-temp-id="${tempId}"]`);
+            if (tempElement) {
+                tempElement.outerHTML = createMessageElement(message);
+            }
+
+            pendingMessages.delete(tempId);
+            fetchChats();
+
+            return message;
+        }
+
+        // UI Functions (без изменений)
+        function renderChatsList() {
+            if (!chats || chats.length === 0) {
+                chatsList.innerHTML = `
+                    <div class="empty-state">
+                        <p>У вас пока нет чатов</p>
+                        <p>Начните новый чат!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            chatsList.innerHTML = chats.map(chat => {
+                const isOnline = onlineUsers.has(chat.other_user.id);
+                const isTyping = chat.isTyping || false;
+
+                return `
+                <div class="chat-item ${currentChat?.id === chat.id ? 'active' : ''}"
+                     data-chat-id="${chat.id}"
+                     data-user-id="${chat.other_user.id}">
+                    <div class="chat-avatar">
+                        ${chat.other_user.username?.charAt(0)?.toUpperCase() || '?'}
+                        <div class="online-indicator ${isOnline ? '' : 'offline'}"></div>
+                    </div>
+                    <div class="chat-info">
+                        <div class="chat-header">
+                            <span class="chat-username">${chat.other_user.username || 'Пользователь'}</span>
+                            <span class="chat-time">${formatTime(chat.last_message?.created_at)}</span>
+                        </div>
+                        <div class="last-message">
+                            ${isTyping ?
+                                '<span class="typing-indicator">печатает...</span>' :
+                                (chat.last_message?.content || 'Нет сообщений')
+                            }
+                            ${chat.unread_count > 0 ? `<span class="unread-badge">${chat.unread_count}</span>` : ''}
+                        </div>
+                    </div>
+                    <button class="delete-chat-btn" data-chat-id="${chat.id}">Удалить</button>
+                </div>
+                `;
+            }).join('');
+
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('delete-chat-btn')) {
+                        const chatId = item.dataset.chatId;
+                        const userId = item.dataset.userId;
+                        const chat = chats.find(c => c.id === chatId);
+                        if (chat) {
+                            openChat(chat);
+                        }
+                    }
+                });
+            });
+
+            document.querySelectorAll('.delete-chat-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    chatToDelete = btn.dataset.chatId;
+
+                    const chat = chats.find(c => c.id === chatToDelete);
+                    if (chat) {
+                        deleteChatMessage.innerHTML = `
+                            Вы уверены, что хотите удалить чат с <strong>${chat.other_user.username}</strong>?<br>
+                            Все сообщения будут удалены без возможности восстановления.
+                        `;
+                    }
+
+                    deleteChatModal.classList.add('active');
+                });
+            });
+        }
+
+        function renderMessages(messages) {
+            if (!messages || messages.length === 0) {
+                messagesContainer.innerHTML = `
+                    <div class="empty-state">
+                        <p>Нет сообщений</p>
+                        <p>Начните общение!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const sortedMessages = [...messages].sort((a, b) =>
+                new Date(a.created_at) - new Date(b.created_at)
+            );
+
+            messagesContainer.innerHTML = sortedMessages.map(msg => createMessageElement(msg)).join('');
+
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function createMessageElement(msg) {
+            const isSent = msg.sender_id === userId;
+            const isRead = msg.is_read || false;
+            const isTemp = msg.id && msg.id.startsWith('temp-');
+            const messageClass = isTemp ? 'message sent temp' : `message ${isSent ? 'sent' : 'received'}`;
+
+            const element = `
+                <div class="${messageClass}"
+                     ${isTemp ? `data-temp-id="${msg.id}"` : `data-message-id="${msg.id}"`}>
+                    <div class="message-content">${msg.content}</div>
+                    <div class="message-time">
+                        ${formatTime(msg.created_at)}
+                        ${isSent && !isTemp ? `<span class="message-status">${isRead ? '✓✓' : '✓'}</span>` : ''}
+                    </div>
+                </div>
+            `;
+
+            return element;
+        }
+
+        function addMessageToChat(messageData, isTemp = false) {
+            if (!isTemp && messageData.id && messagesContainer.querySelector(`[data-message-id="${messageData.id}"]`)) {
+                debugLog('Message already exists, skipping:', messageData.id);
+                return;
+            }
+
+            const messageElement = createMessageElement(messageData);
+            messagesContainer.insertAdjacentHTML('beforeend', messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function renderChatHeader(chat) {
+            const chatInfo = document.getElementById('currentChatInfo');
+            if (!chat) {
+                chatInfo.innerHTML = `
+                    <div class="empty-state">
+                        Выберите чат для начала общения
+                    </div>
+                `;
+                return;
+            }
+
+            const isOnline = onlineUsers.has(chat.other_user.id);
+
+            chatInfo.innerHTML = `
+                <div class="chat-avatar">
+                    ${chat.other_user.username?.charAt(0)?.toUpperCase() || '?'}
+                    <div class="online-indicator ${isOnline ? '' : 'offline'}"></div>
+                </div>
+                <div class="chat-info">
+                    <div class="chat-header">
+                        <span class="chat-username">${chat.other_user.username || 'Пользователь'}</span>
+                        <span class="online-status">
+                            <span class="online-dot ${isOnline ? '' : 'offline'}"></span>
+                            ${isOnline ? 'онлайн' : `был(а) ${formatLastSeen(chat.other_user.last_seen)}`}
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function openChat(chat) {
+            currentChat = chat;
+            renderChatHeader(chat);
+            fetchMessages(chat.other_user.id);
+            messageInputContainer.style.display = 'block';
+
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.chatId === chat.id) {
+                    item.classList.add('active');
+                }
+            });
+
+            if (chat.unread_count > 0) {
+                const unreadMessages = messagesContainer.querySelectorAll('.message.received');
+                unreadMessages.forEach(msg => {
+                    const messageId = msg.dataset.messageId;
+                    if (messageId && !messageId.startsWith('temp-')) {
+                        sendMessageRead(messageId);
+                    }
+                });
+
+                chat.unread_count = 0;
+                renderChatsList();
+            }
+
+            if (window.innerWidth <= 768) {
+                sidebar.classList.add('hidden');
+            }
+        }
+
+        function closeChat() {
+            currentChat = null;
+            renderChatHeader(null);
+            messagesContainer.innerHTML = `
+                <div class="empty-state">
+                    Сообщения появятся здесь
+                </div>
+            `;
+            messageInputContainer.style.display = 'none';
+
+            if (window.innerWidth <= 768) {
+                sidebar.classList.remove('hidden');
+            }
+        }
+
+        function showTypingIndicator() {
+            typingIndicator.style.display = 'flex';
+            messagesContainer.appendChild(typingIndicator);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            typingIndicator.style.display = 'none';
+        }
+
+        function updateOnlineStatuses() {
+            document.querySelectorAll('.chat-item').forEach(item => {
+                const userId = item.dataset.userId;
+                const onlineIndicator = item.querySelector('.online-indicator');
+                if (onlineIndicator) {
+                    onlineIndicator.className = `online-indicator ${onlineUsers.has(userId) ? '' : 'offline'}`;
+                }
+            });
+
+            if (currentChat) {
+                renderChatHeader(currentChat);
+            }
+        }
+
+        function showNotification(messageData) {
+            if (!("Notification" in window)) {
+                return;
+            }
+
+            if (Notification.permission === "granted") {
+                new Notification(`Новое сообщение от ${messageData.sender_id}`, {
+                    body: messageData.content,
+                    icon: '/favicon.ico'
+                });
+            } else if (Notification.permission !== "denied") {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        new Notification(`Новое сообщение от ${messageData.sender_id}`, {
+                            body: messageData.content,
+                            icon: '/favicon.ico'
+                        });
+                    }
+                });
+            }
+        }
+
+        // Helper Functions (без изменений)
+        function formatTime(dateString) {
+            if (!dateString) return '';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function formatLastSeen(dateString) {
+            if (!dateString) return 'давно';
+            try {
+                const date = new Date(dateString);
+                const now = new Date();
+                const diffMinutes = Math.floor((now - date) / (1000 * 60));
+
+                if (diffMinutes < 60) {
+                    return `${diffMinutes} мин. назад`;
+                } else if (diffMinutes < 1440) {
+                    const diffHours = Math.floor(diffMinutes / 60);
+                    return `${diffHours} ч. назад`;
+                } else {
+                    const diffDays = Math.floor(diffMinutes / 1440);
+                    return `${diffDays} д. назад`;
+                }
+            } catch (e) {
+                return 'давно';
+            }
+        }
+
+        function showLoading(container, text) {
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    ${text}
+                </div>
+            `;
+        }
+
+        function showError(container, text) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <p>${text}</p>
+                </div>
+            `;
+        }
+
+        async function initChats() {
+            try {
+                await fetchChats();
+
+                setInterval(async () => {
+                    try {
+                        await fetchChats();
+                    } catch (error) {
+                        // Игнорируем ошибки автообновления
+                    }
+                }, 30000);
+            } catch (error) {
+                if (error.message.includes('Сессия истекла')) {
+                    logout();
+                }
+            }
+        }
+
+        // Event Listeners (без изменений)
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const login = loginInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            if (!login || !password) {
+                showAuthError('Пожалуйста, введите логин и пароль');
+                return;
+            }
+
+            await authenticate(login, password);
+        });
+
+        logoutBtn.addEventListener('click', logout);
+
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const content = messageInput.value.trim();
+
+            if (!content || !currentChat) return;
+
+            sendBtn.disabled = true;
+            try {
+                await sendMessage(content, currentChat.other_user.id);
+                messageInput.value = '';
+                sendTypingIndicator(false);
+            } catch (error) {
+                if (error.message.includes('Сессия истекла')) {
+                    logout();
+                }
+            } finally {
+                sendBtn.disabled = false;
+            }
+        });
+
+        let typingDebounceTimer;
+        messageInput.addEventListener('input', () => {
+            clearTimeout(typingDebounceTimer);
+
+            sendTypingIndicator(true);
+
+            typingDebounceTimer = setTimeout(() => {
+                sendTypingIndicator(false);
+            }, 2000);
+        });
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                messageForm.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        newChatBtn.addEventListener('click', () => {
+            newChatModal.classList.add('active');
+            userIdInput.value = '';
+            userIdInput.focus();
+        });
+
+        cancelNewChatBtn.addEventListener('click', () => {
+            newChatModal.classList.remove('active');
+        });
+
+        createChatBtn.addEventListener('click', async () => {
+            const userId = userIdInput.value.trim();
+            if (!userId) {
+                alert('Пожалуйста, введите ID пользователя');
+                return;
+            }
+
+            await createChat(userId);
+            newChatModal.classList.remove('active');
+        });
+
+        cancelDeleteBtn.addEventListener('click', () => {
+            deleteChatModal.classList.remove('active');
+            chatToDelete = null;
+        });
+
+        confirmDeleteBtn.addEventListener('click', async () => {
+            if (chatToDelete) {
+                confirmDeleteBtn.disabled = true;
+                confirmDeleteBtn.textContent = 'Удаление...';
+
+                try {
+                    await deleteChat(chatToDelete);
+                } finally {
+                    confirmDeleteBtn.disabled = false;
+                    confirmDeleteBtn.textContent = 'Удалить';
+                }
+            }
+        });
+
+        backBtn.addEventListener('click', () => {
+            closeChat();
+        });
+
+        [newChatModal, deleteChatModal].forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('active');
+                }
+            });
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                newChatModal.classList.remove('active');
+                deleteChatModal.classList.remove('active');
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                e.preventDefault();
+                newChatModal.classList.add('active');
+                userIdInput.focus();
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+                e.preventDefault();
+                logout();
+            }
+        });
+
+        if ("Notification" in window) {
+            Notification.requestPermission();
+        }
+
+        // Initialization
+        function init() {
+            debugLog('Initializing application...');
+            debugLog('Current host:', window.location.host);
+            debugLog('API Base URL:', API_BASE_URL);
+
+            if (loadUserFromStorage()) {
+                showChatInterface();
+                connectWebSocket(authToken);
+            } else {
+                authContainer.style.display = 'flex';
+                chatInterface.style.display = 'none';
+            }
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+
+        // Запускаем приложение
+        init();
+    </script>
+</body>
+</html>

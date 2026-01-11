@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query, \
+    Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from sqlalchemy import func
+from typing import List, Dict, Any
 from uuid import UUID
 from datetime import datetime
-import os
 import shutil
-import json
 from pathlib import Path
+import uuid as uuid_lib
 
 from app.database import get_db
 from app import schemas, models
@@ -19,17 +20,15 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
-#temporary
-templates = Jinja2Templates(directory="/home/artem/Desktop/work/ChatWebSocket/app/static/templates")
+templates = Jinja2Templates(directory="app/static/templates")
 
-# WebSocket endpoint
+
 @router.websocket("/ws/{token}")
 async def websocket_endpoint(websocket: WebSocket, token: str):
     """WebSocket соединение для реального времени"""
     await websocket.accept()
 
     try:
-        # Декодируем токен
         payload = decode_token(token)
         if not payload:
             await websocket.send_json({
@@ -135,8 +134,6 @@ async def handle_message(data: Dict[str, Any], sender_id: UUID, db: Session):
         receiver_id = UUID(data.get("receiver_id"))
         content = data.get("content", "")
         message_type = data.get("message_type", "text")
-
-        # Находим или создаем чат
         chat = db.query(models.Chat).filter(
             (models.Chat.user1_id == sender_id) & (models.Chat.user2_id == receiver_id) |
             (models.Chat.user1_id == receiver_id) & (models.Chat.user2_id == sender_id)
@@ -201,7 +198,7 @@ async def handle_typing(data: Dict[str, Any], user_id: UUID, db: Session):
         is_typing = data.get("is_typing", False)
 
         chat = db.query(models.Chat).filter(
-            models.Chat.id == chat_id,(models.Chat.user1_id == user_id) | (models.Chat.user2_id == user_id)).first()
+            models.Chat.id == chat_id, (models.Chat.user1_id == user_id) | (models.Chat.user2_id == user_id)).first()
 
         if not chat:
             return
@@ -272,16 +269,11 @@ async def handle_chat_update(data: Dict[str, Any], user_id: UUID, db: Session):
     pass
 
 
-# HTTP endpoints
 @router.get("/messages/{user_id}", response_model=List[schemas.Message])
-async def get_messages_by_id(
-        user_id: UUID,
-        skip: int = 0,
-        limit: int = 100,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
-    """Получить все сообщения с указанным пользователем"""
+async def get_messages_by_id(user_id: UUID, skip: int = 0, limit: int = 100,
+                             current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Получить все сообщения текущего пользователем"""
+
     chat = db.query(models.Chat).filter(
         (models.Chat.user1_id == current_user.id) & (models.Chat.user2_id == user_id) |
         (models.Chat.user1_id == user_id) & (models.Chat.user2_id == current_user.id)
@@ -310,11 +302,9 @@ async def get_messages_by_id(
 
 
 @router.get("/chats", response_model=List[schemas.ChatInfo])
-async def get_all_chats(
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
-    """Получить все чаты пользователя с последним сообщением"""
+async def get_all_chats(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Получить все чаты текущего пользователя с последним сообщением"""
+
     chats = db.query(models.Chat).filter(
         (models.Chat.user1_id == current_user.id) | (models.Chat.user2_id == current_user.id),
         models.Chat.is_active == True
@@ -367,13 +357,9 @@ async def get_all_chats(
 
 
 @router.post("/chats/by-date", response_model=List[schemas.ChatInfo])
-async def get_chats_by_date(
-        date_filter: schemas.DateFilter,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def get_chats_by_date(date_filter: schemas.DateFilter, current_user: models.User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
     """Получить чаты по диапазону дат последнего сообщения"""
-    from sqlalchemy import func
 
     subquery = db.query(
         models.Message.chat_id,
@@ -397,7 +383,7 @@ async def get_chats_by_date(
             continue
 
         last_message = db.query(models.Message).filter(models.Message.chat_id == chat.id
-        ).order_by(models.Message.created_at.desc()).first()
+                                                       ).order_by(models.Message.created_at.desc()).first()
 
         if str(chat.user1_id) == str(current_user.id):
             unread_count = chat.unread_count_user1
@@ -433,13 +419,11 @@ async def get_chats_by_date(
 
 
 @router.delete("/{chat_id}")
-async def delete_chat_by_id(
-        chat_id: UUID,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def delete_chat_by_id(chat_id: UUID, current_user: models.User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
     """Удалить чат по ID"""
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id,models.Chat.is_active == True).first()
+
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id, models.Chat.is_active == True).first()
 
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -455,13 +439,11 @@ async def delete_chat_by_id(
 
 
 @router.put("/archive/{chat_id}")
-async def archive_chat_by_id(
-        chat_id: UUID,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
-    """Удалить чат по ID"""
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id,models.Chat.is_active == True).first()
+async def archive_chat_by_id(chat_id: UUID, current_user: models.User = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """Добавить чат по ID в архив"""
+
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id, models.Chat.is_active == True).first()
 
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -475,13 +457,12 @@ async def archive_chat_by_id(
 
 
 @router.post("/new", response_model=schemas.ChatInfo)
-async def make_new_chat(
-        chat_data: schemas.ChatCreate,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def make_new_chat(chat_data: schemas.ChatCreate, current_user: models.User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
     """Создать новый чат с пользователем"""
-    other_user = db.query(models.User).filter(models.User.id == chat_data.user2_id,models.User.is_active == True).first()
+
+    other_user = db.query(models.User).filter(models.User.id == chat_data.user2_id,
+                                              models.User.is_active == True).first()
 
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -530,11 +511,8 @@ async def make_new_chat(
 
 
 @router.post("/message", response_model=schemas.Message)
-async def send_message(
-        message_data: schemas.MessageCreate,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def send_message(message_data: schemas.MessageCreate, current_user: models.User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
     """Отправить текстовое сообщение (HTTP)"""
 
     chat = db.query(models.Chat).filter(
@@ -587,13 +565,10 @@ async def send_message(
 
 
 @router.post("/media")
-async def send_media(
-        receiver_id: UUID = Form(...),
-        file: UploadFile = File(...),
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def send_media(receiver_id: UUID = Form(...), file: UploadFile = File(...),
+                     current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Отправить медиафайл"""
+
     content_type = file.content_type or ""
     if content_type.startswith('image/'):
         message_type = "image"
@@ -616,7 +591,6 @@ async def send_media(
         db.commit()
         db.refresh(chat)
 
-    import uuid as uuid_lib
     file_extension = Path(file.filename).suffix
     file_name = f"{uuid_lib.uuid4()}{file_extension}"
     file_path = UPLOAD_DIR / file_name
@@ -663,18 +637,14 @@ async def send_media(
     }
 
     await ws_manager.send_personal_message(ws_message, receiver_id)
-
     return message
 
 
 @router.post("/reply/{message_id}")
-async def reply_message(
-        message_id: UUID,
-        content: str = Form(...),
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def reply_message(message_id: UUID, content: str = Form(...),
+                        current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Ответить на сообщение"""
+
     original_message = db.query(models.Message).filter(models.Message.id == message_id).first()
     if not original_message:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -723,13 +693,10 @@ async def reply_message(
 
 
 @router.post("/forward/{message_id}")
-async def reply_message_to_id(
-        message_id: UUID,
-        receiver_id: UUID = Form(...),
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def reply_message_to_id(message_id: UUID, receiver_id: UUID = Form(...),
+                              current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Переслать сообщение другому пользователю"""
+
     original_message = db.query(models.Message).filter(models.Message.id == message_id).first()
     if not original_message:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -791,83 +758,19 @@ async def reply_message_to_id(
 
 
 @router.post("/file")
-async def send_file(
-        receiver_id: UUID = Form(...),
-        file: UploadFile = File(...),
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def send_file(receiver_id: UUID = Form(...), file: UploadFile = File(...),
+                    current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Отправить файл"""
+
     return await send_media(receiver_id, file, current_user, db)
 
 
-@router.post("/location")
-async def send_geolocation(
-        location_data: schemas.LocationCreate,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
-    """Отправить геолокацию"""
-    chat = db.query(models.Chat).filter(
-        (models.Chat.user1_id == current_user.id) & (models.Chat.user2_id == location_data.receiver_id) |
-        (models.Chat.user1_id == location_data.receiver_id) & (models.Chat.user2_id == current_user.id)
-    ).first()
-
-    if not chat:
-        user1_id, user2_id = sorted([current_user.id, location_data.receiver_id])
-        chat = models.Chat(user1_id=user1_id, user2_id=user2_id)
-        db.add(chat)
-        db.commit()
-        db.refresh(chat)
-
-    message = models.Message(
-        chat_id=chat.id,
-        sender_id=current_user.id,
-        receiver_id=location_data.receiver_id,
-        message_type="location",
-        latitude=location_data.latitude,
-        longitude=location_data.longitude
-    )
-
-    db.add(message)
-
-    chat.updated_at = datetime.utcnow()
-    chat.last_message_id = message.id
-    if str(chat.user1_id) == str(location_data.receiver_id):
-        chat.unread_count_user1 += 1
-    else:
-        chat.unread_count_user2 += 1
-
-    db.commit()
-    db.refresh(message)
-
-    ws_message = {
-        "type": "message",
-        "message_id": str(message.id),
-        "chat_id": str(chat.id),
-        "sender_id": str(current_user.id),
-        "receiver_id": str(location_data.receiver_id),
-        "message_type": "location",
-        "latitude": location_data.latitude,
-        "longitude": location_data.longitude,
-        "created_at": message.created_at.isoformat(),
-        "is_read": message.is_read
-    }
-
-    await ws_manager.send_personal_message(ws_message, location_data.receiver_id)
-
-    return message
-
-
 @router.post("/read/{message_id}")
-async def mark_message_as_read(
-        message_id: UUID,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def mark_message_as_read(message_id: UUID, current_user: models.User = Depends(get_current_user),
+                               db: Session = Depends(get_db)):
     """Пометить сообщение как прочитанное"""
-    message = db.query(models.Message).filter(models.Message.id == message_id).first()
 
+    message = db.query(models.Message).filter(models.Message.id == message_id).first()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
 
@@ -903,12 +806,10 @@ async def mark_message_as_read(
 
 
 @router.get("/typing/{chat_id}")
-async def get_typing_status(
-        chat_id: UUID,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def get_typing_status(chat_id: UUID, current_user: models.User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
     """Получить статус набора в чате"""
+
     chat = db.query(models.Chat).filter(
         models.Chat.id == chat_id,
         (models.Chat.user1_id == current_user.id) | (models.Chat.user2_id == current_user.id)
@@ -940,13 +841,10 @@ async def get_typing_status(
 
 
 @router.post("/typing/{chat_id}")
-async def set_typing_status(
-        chat_id: UUID,
-        is_typing: bool = True,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def set_typing_status(chat_id: UUID, is_typing: bool = True,
+                            current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Установить статус набора в чате"""
+
     chat = db.query(models.Chat).filter(
         models.Chat.id == chat_id,
         (models.Chat.user1_id == current_user.id) | (models.Chat.user2_id == current_user.id)
@@ -982,17 +880,13 @@ async def set_typing_status(
     }
 
     await ws_manager.send_personal_message(typing_message, receiver_id)
-
     return {"status": "success", "is_typing": is_typing}
 
 
 @router.get("/online/{user_id}")
-async def check_user_online(
-        user_id: UUID,
-        current_user: models.User = Depends(get_current_user),
-        db: Session = Depends(get_db)
-):
+async def check_user_online(user_id: UUID, db: Session = Depends(get_db)):
     """Проверить онлайн статус пользователя"""
+
     is_online = ws_manager.is_user_online(user_id)
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -1007,11 +901,9 @@ async def check_user_online(
 
 
 @router.get("/online-users")
-async def get_online_users(
-        user_ids: List[UUID] = Query(...),
-        current_user: models.User = Depends(get_current_user)
-):
+async def get_online_users(user_ids: List[UUID] = Query(...)):
     """Получить статус онлайн для списка пользователей"""
+
     online_status = {}
     for uid in user_ids:
         online_status[str(uid)] = ws_manager.is_user_online(uid)
@@ -1021,9 +913,8 @@ async def get_online_users(
 
 @router.get("/uploads/{filename}")
 async def get_uploaded_file(filename: str):
-    """
-    Получить загруженный файл
-    """
+    """Получить загруженный файл"""
+
     file_path = UPLOAD_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
@@ -1032,7 +923,8 @@ async def get_uploaded_file(filename: str):
 
 @router.get("/test-ws", response_class=HTMLResponse)
 async def test_websocket_page(request: Request):
-    """Тестовая страница для WebSocket"""
+    """Главная страница приложения"""
+
     return templates.TemplateResponse(
         "index.html",
         {"request": request}

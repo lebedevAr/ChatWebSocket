@@ -1,65 +1,86 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import TypeDecorator, CHAR
-import uuid
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy import text
+import traceback
 
+from .models import Base
 
-# Кастомный тип GUID для SQLite
-class GUID(TypeDecorator):
-    """Platform-independent GUID type."""
-    impl = CHAR
-    cache_ok = True
+DB_USER = 'postgres'
+DB_PASSWORD = 'postgres'
+DB_HOST = 'localhost'
+DB_PORT = 5432
+DB_NAME = 'postgres'
+DB_ECHO = False
+DB_POOL_SIZE = 20
+DB_MAX_OVERFLOW = 10
+SQLALCHEMY_DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-    def load_dialect_impl(self, dialect):
-        return dialect.type_descriptor(CHAR(32))
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return value
-
-        if isinstance(value, uuid.UUID):
-            return value.hex
-        elif isinstance(value, str):
-            # Если это строка UUID, конвертируем в hex
-            try:
-                return uuid.UUID(value).hex
-            except ValueError:
-                # Если уже hex строка (32 символа)
-                if len(value) == 32 and all(c in '0123456789abcdefABCDEF' for c in value):
-                    return value.lower()
-                return value
-        else:
-            return str(value)
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return value
-
-        try:
-            # Пытаемся создать UUID из hex строки
-            return uuid.UUID(hex=value)
-        except (ValueError, TypeError):
-            return value
-
-
-# Используем SQLite для простоты
-SQLALCHEMY_DATABASE_URL = "sqlite:///./chat.db"
-
-engine = create_engine(
+engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    echo=True  # Оставляем True для отладки
+    echo=DB_ECHO,
+    pool_size=DB_POOL_SIZE,
+    max_overflow=DB_MAX_OVERFLOW,
+    pool_pre_ping=True,
+    pool_recycle=3600,
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
-Base = declarative_base()
+Base_model = Base
 
 
-def get_db():
-    db = SessionLocal()
+async def get_db() -> AsyncSession:
+    """Асинхронная зависимость для получения сессии БД"""
+
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+async def init_db():
+    """Асинхронная инициализация базы данных (создание таблиц)"""
+
     try:
-        yield db
-    finally:
-        db.close()
+        print("Creating database tables")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            print("Database tables created")
+
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT version()"))
+            version = result.scalar()
+            print(f"Database version: {version}")
+            result = await conn.execute(text(
+                """
+                SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename
+                """))
+            tables = [row[0] for row in result]
+            if tables:
+                print(f"Tables in database: {', '.join(tables)}")
+            else:
+                print("No tables found in database")
+
+            for table in ['users', 'chats', 'messages']:
+                if table in tables:
+                    try:
+                        count_result = await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        count = count_result.scalar()
+                        print(f"  - {table}: {count} records")
+                    except:
+                        print(f"  - {table}: exists but empty")
+
+    except Exception as e:
+        print(f"Error creating tables: {e}")
+        traceback.print_exc()
+        raise

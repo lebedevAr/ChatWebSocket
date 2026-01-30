@@ -1,5 +1,6 @@
 .idea/
 .venv/
 __pycache__/
-chat.db
+app/config.py
+
 uploads/

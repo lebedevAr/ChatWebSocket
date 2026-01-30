@@ -1,10 +1,14 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Enum, Float, JSON, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.sql import func
 import uuid
-from datetime import datetime
-from app.database import Base, GUID
 import enum
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    """Базовый класс для всех моделей с поддержкой асинхронности"""
+    pass
 
 
 class MessageType(str, enum.Enum):
@@ -20,60 +24,66 @@ class MessageType(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     online_status = Column(Boolean, default=False)
-    last_seen = Column(DateTime(timezone=True))
-    profile_image = Column(String(500))
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+    profile_image = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships с явным указанием foreign_keys
     sent_messages = relationship(
         "Message",
         foreign_keys="Message.sender_id",
         back_populates="sender",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        lazy="selectin"
     )
     received_messages = relationship(
         "Message",
         foreign_keys="Message.receiver_id",
         back_populates="receiver",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        lazy="selectin"
     )
     chats_as_user1 = relationship(
         "Chat",
         foreign_keys="Chat.user1_id",
-        back_populates="user1"
+        back_populates="user1",
+        lazy="selectin"
     )
     chats_as_user2 = relationship(
         "Chat",
         foreign_keys="Chat.user2_id",
-        back_populates="user2"
+        back_populates="user2",
+        lazy="selectin"
     )
     read_statuses = relationship(
         "MessageReadStatus",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        lazy="selectin"
     )
+
+    def __repr__(self):
+        return f"<User {self.username}>"
 
 
 class Chat(Base):
     __tablename__ = "chats"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    user1_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    user2_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user1_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user2_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     is_active = Column(Boolean, default=True)
-    last_message_id = Column(GUID(), ForeignKey("messages.id"), nullable=True)
+    last_message_id = Column(String(36), ForeignKey("messages.id"), nullable=True)
     unread_count_user1 = Column(Integer, default=0)
     unread_count_user2 = Column(Integer, default=0)
 
-    # Relationships
     user1 = relationship(
         "User",
         foreign_keys=[user1_id],
@@ -88,42 +98,44 @@ class Chat(Base):
         "Message",
         back_populates="chat",
         foreign_keys="Message.chat_id",
-        cascade="all, delete-orphan"
+        cascade="save-update, merge",
+        lazy="selectin"
     )
     last_message = relationship(
         "Message",
-        foreign_keys=[last_message_id]
+        foreign_keys=[last_message_id],
+        post_update=True
     )
 
-    __table_args__ = (
-        UniqueConstraint('user1_id', 'user2_id', name='unique_chat_users'),
-    )
+    __table_args__ = (UniqueConstraint('user1_id', 'user2_id', name='unique_chat_users'),)
+
+    def __repr__(self):
+        return f"<Chat {self.id}: {self.user1_id}-{self.user2_id}>"
 
 
 class Message(Base):
     __tablename__ = "messages"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    chat_id = Column(GUID(), ForeignKey("chats.id"), nullable=False)
-    sender_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
-    receiver_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id = Column(String(36), ForeignKey("chats.id"), nullable=False, index=True)
+    sender_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    receiver_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     message_type = Column(Enum(MessageType), default=MessageType.TEXT)
-    content = Column(Text)
-    media_url = Column(String(500))
-    file_name = Column(String(255))
-    file_size = Column(Integer)
-    file_type = Column(String(50))
-    latitude = Column(Float)
-    longitude = Column(Float)
-    reply_to_id = Column(GUID(), ForeignKey("messages.id"), nullable=True)
-    forwarded_from_id = Column(GUID(), ForeignKey("users.id"), nullable=True)
+    content = Column(Text, nullable=True)
+    media_url = Column(String(500), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    file_size = Column(Integer, nullable=True)
+    file_type = Column(String(50), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    reply_to_id = Column(String(36), ForeignKey("messages.id"), nullable=True)
+    forwarded_from_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     is_read = Column(Boolean, default=False)
-    read_at = Column(DateTime(timezone=True))
-    extra_data = Column(JSON)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    extra_data = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Relationships
     chat = relationship(
         "Chat",
         foreign_keys=[chat_id],
@@ -152,39 +164,51 @@ class Message(Base):
     read_statuses = relationship(
         "MessageReadStatus",
         back_populates="message",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        lazy="selectin"
     )
+
+    def __repr__(self):
+        return f"<Message {self.id}: {self.message_type}>"
 
 
 class MessageReadStatus(Base):
     __tablename__ = "message_read_status"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    message_id = Column(GUID(), ForeignKey("messages.id"), nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    message_id = Column(String(36), ForeignKey("messages.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 
     message = relationship(
         "Message",
         foreign_keys=[message_id],
-        back_populates="read_statuses"
+        back_populates="read_statuses",
+        lazy="selectin"
     )
     user = relationship(
         "User",
         foreign_keys=[user_id],
-        back_populates="read_statuses"
+        back_populates="read_statuses",
+        lazy="selectin"
     )
+
+    def __repr__(self):
+        return f"<MessageReadStatus {self.message_id} by {self.user_id}>"
 
 
 class TypingStatus(Base):
     __tablename__ = "typing_status"
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    chat_id = Column(GUID(), ForeignKey("chats.id"), nullable=False)
-    user_id = Column(GUID(), ForeignKey("users.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_id = Column(String(36), ForeignKey("chats.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     is_typing = Column(Boolean, default=False)
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    chat = relationship("Chat", foreign_keys=[chat_id])
-    user = relationship("User", foreign_keys=[user_id])
+    chat = relationship("Chat", foreign_keys=[chat_id], lazy="selectin")
+    user = relationship("User", foreign_keys=[user_id], lazy="selectin")
+
+    def __repr__(self):
+        return f"<TypingStatus {self.user_id} in {self.chat_id}: {self.is_typing}>"

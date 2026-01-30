@@ -5,3 +5,4 @@
 ## 4. Add tests for main methods
 ## 5. Docker-compose
 ## 6. Realise media sending
+## 7. HTML decomposition -> css, js
